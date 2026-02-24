@@ -1,8 +1,5 @@
-# Environment variables
 .env
 .env.*
 app/.env
-^O WriteOut
-^X Exit
-Control (⌃) + O
+
 
