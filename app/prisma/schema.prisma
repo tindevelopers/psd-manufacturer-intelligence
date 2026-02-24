@@ -1,0 +1,278 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/manufacturer-search-app/app/node_modules/.prisma/client"
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model Manufacturer {
+    id          String   @id @default(cuid())
+    name        String   @unique
+    description String?
+    website     String?
+    email       String?
+    phone       String?
+    address     String?
+    location    String?
+    rating      Float?
+    verified    Boolean  @default(false)
+    logoUrl     String?
+    
+    // Petstore.direct specific fields
+    petstoreId  String?  @unique
+    sourceUrl   String?  // Original URL from petstore.direct
+    
+    // Metadata
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+    lastScraped DateTime?
+    
+    // Relations
+    products       Product[]
+    categories     ManufacturerCategory[]
+    reviews        Review[]
+    knowledge      ManufacturerKnowledge?
+    catalogProducts ManufacturerCatalogProduct[]
+    scrapeJobs     ManufacturerScrapeJob[]
+    
+    @@map("manufacturers")
+}
+
+model Product {
+    id            String   @id @default(cuid())
+    name          String
+    description   String?  // Plain text description (for search)
+    descriptionHtml String? // Full HTML description from Shopify
+    price         Float?
+    compareAtPrice Float?   // Original price for sale items
+    currency      String?
+    imageUrl      String?  // Primary image
+    images        Json?    // Array of all image objects: [{src, alt, width, height}]
+    sku           String?
+    inStock       Boolean  @default(true)
+    inventoryQuantity Int?
+    
+    // Shopify-specific fields
+    shopifyId     String?  @unique
+    shopifyHandle String?  // URL handle for linking back to store
+    shopifyProductUrl String? // Direct link to product on Shopify store
+    
+    // Product details
+    category      String?
+    subcategory   String?
+    tags          String[] // Array of product tags
+    specifications Json?   // Flexible JSON for product specs
+    weight        Float?
+    weightUnit    String?
+    
+    // Relations
+    manufacturer   Manufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Cascade)
+    manufacturerId String
+    
+    // Metadata
+    createdAt     DateTime @default(now())
+    updatedAt     DateTime @updatedAt
+    
+    @@map("products")
+}
+
+model Category {
+    id          String   @id @default(cuid())
+    name        String   @unique
+    description String?
+    parentId    String?  // For nested categories
+    parent      Category? @relation("CategoryParent", fields: [parentId], references: [id])
+    children    Category[] @relation("CategoryParent")
+    
+    // Relations
+    manufacturers ManufacturerCategory[]
+    
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+    
+    @@map("categories")
+}
+
+model ManufacturerCategory {
+    id             String       @id @default(cuid())
+    manufacturer   Manufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Cascade)
+    manufacturerId String
+    category       Category     @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+    categoryId     String
+    
+    @@unique([manufacturerId, categoryId])
+    @@map("manufacturer_categories")
+}
+
+model Review {
+    id             String       @id @default(cuid())
+    rating         Float
+    title          String?
+    content        String?
+    reviewerName   String?
+    reviewerEmail  String?
+    verified       Boolean      @default(false)
+    
+    // Relations
+    manufacturer   Manufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Cascade)
+    manufacturerId String
+    
+    createdAt      DateTime     @default(now())
+    updatedAt      DateTime     @updatedAt
+    
+    @@map("reviews")
+}
+
+model ScrapingJob {
+    id          String   @id @default(cuid())
+    status      String   // pending, running, completed, failed
+    startedAt   DateTime @default(now())
+    completedAt DateTime?
+    error       String?
+    
+    // Job details
+    jobType     String   // full_scrape, manufacturer_update, product_sync
+    targetUrl   String?
+    progress    Int      @default(0)
+    totalItems  Int      @default(0)
+    
+    // Results
+    manufacturersFound Int @default(0)
+    productsFound      Int @default(0)
+    
+    metadata    Json?    // Additional job metadata
+    
+    @@map("scraping_jobs")
+}
+
+model Setting {
+    id          String   @id @default(cuid())
+    key         String   @unique
+    value       String?  // Encrypted sensitive values
+    category    String   // api, scraping, general, etc.
+    description String?
+    isEncrypted Boolean  @default(false)
+    isActive    Boolean  @default(true)
+    
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+    
+    @@map("settings")
+}
+
+// Scraped knowledge from manufacturer websites
+model ManufacturerKnowledge {
+    id             String       @id @default(cuid())
+    manufacturer   Manufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Cascade)
+    manufacturerId String       @unique
+    
+    // Company Information
+    companyOverview    String?  @db.Text
+    foundedYear        String?
+    headquarters       String?
+    employeeCount      String?
+    annualRevenue      String?
+    
+    // Contact Information
+    salesEmail         String?
+    salesPhone         String?
+    supportEmail       String?
+    supportPhone       String?
+    wholesaleContact   String?
+    
+    // Business Details
+    distributionInfo   String?  @db.Text
+    certifications     String[] // FDA, USDA Organic, etc.
+    manufacturingLocations String[]
+    
+    // Product Information
+    productCategories  String[]
+    totalProductCount  Int?
+    brandNames         String[]
+    
+    // Additional Data
+    socialMedia        Json?    // { facebook, instagram, linkedin, etc. }
+    pressReleases      Json?    // Recent news/announcements
+    rawScrapedData     Json?    // Full raw data for reference
+    
+    // Metadata
+    scrapedAt          DateTime @default(now())
+    lastUpdated        DateTime @updatedAt
+    sourceUrls         String[] // URLs that were scraped
+    scrapingStatus     String   @default("pending") // pending, in_progress, completed, failed
+    
+    @@map("manufacturer_knowledge")
+}
+
+// Products from manufacturer's own website (their full catalog)
+model ManufacturerCatalogProduct {
+    id             String       @id @default(cuid())
+    manufacturer   Manufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Cascade)
+    manufacturerId String
+    
+    // Product Details
+    name           String
+    description    String?      @db.Text
+    sku            String?
+    modelNumber    String?      // Manufacturer's model number
+    msrp           Float?       // Manufacturer's suggested retail price
+    currency       String?
+    imageUrl       String?
+    productUrl     String?      // URL on manufacturer's website
+    
+    // Documentation & Manuals
+    manualUrl      String?      // PDF manual link
+    specSheetUrl   String?      // Specification sheet PDF
+    quickStartUrl  String?      // Quick start guide PDF
+    documents      Json?        // Array of { name, url, type } for all docs
+    
+    // Classification
+    category       String?
+    subcategory    String?
+    productLine    String?      // e.g., "Premium", "Veterinary Diet"
+    
+    // Specifications
+    ingredients    String?      @db.Text
+    nutritionInfo  Json?
+    specifications Json?        // Detailed specs as JSON
+    features       String[]     // Key features list
+    sizes          String[]     // Available sizes/weights
+    
+    // Matching with Shopify Products
+    matchedProductId String?    // ID of matched Product from Shopify
+    matchConfidence  Float?     // 0-1 confidence score of the match
+    matchMethod      String?    // How it was matched: sku, name, model
+    
+    // Metadata
+    scrapedAt      DateTime     @default(now())
+    lastUpdated    DateTime     @updatedAt
+    
+    @@unique([manufacturerId, sku])
+    @@index([matchedProductId])
+    @@map("manufacturer_catalog_products")
+}
+
+// Scraping job specifically for manufacturer websites
+model ManufacturerScrapeJob {
+    id             String       @id @default(cuid())
+    manufacturer   Manufacturer @relation(fields: [manufacturerId], references: [id], onDelete: Cascade)
+    manufacturerId String
+    
+    status         String       // pending, running, completed, failed
+    startedAt      DateTime     @default(now())
+    completedAt    DateTime?
+    error          String?
+    
+    // Progress
+    pagesScraped   Int          @default(0)
+    productsFound  Int          @default(0)
+    
+    // Results summary
+    resultSummary  Json?
+    
+    @@map("manufacturer_scrape_jobs")
+}
